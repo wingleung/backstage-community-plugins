@@ -14,18 +14,25 @@
  * limitations under the License.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useEffect, useRef } from 'react';
 import {
   InfoCard,
   MarkdownContent,
   Progress,
   WarningPanel,
 } from '@backstage/core-components';
-import { discoveryApiRef, useApi } from '@backstage/core-plugin-api';
+import {
+  discoveryApiRef,
+  errorApiRef,
+  useApi,
+} from '@backstage/core-plugin-api';
+import { stringifyError } from '@backstage/errors';
 import { scmIntegrationsApiRef } from '@backstage/integration-react';
 import { getAdrLocationUrl } from '@backstage-community/plugin-adr-common';
 import { useEntity } from '@backstage/plugin-catalog-react';
 import { CookieAuthRefreshProvider } from '@backstage/plugin-auth-react';
+import { useTheme } from '@material-ui/core/styles';
+import mermaid from 'mermaid';
 
 import { adrDecoratorFactories } from './decorators';
 import { AdrContentDecorator } from './types';
@@ -48,6 +55,9 @@ export const AdrReader = (props: {
   const adrLocationUrl = getAdrLocationUrl(entity, scmIntegrations);
   const adrFileLocationUrl = getAdrLocationUrl(entity, scmIntegrations, adr);
   const discoveryApi = useApi(discoveryApiRef);
+  const errorApi = useApi(errorApiRef);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const theme = useTheme();
 
   const { value, loading, error } = useAsync(
     async () => adrApi.readAdr(adrFileLocationUrl),
@@ -76,6 +86,47 @@ export const AdrReader = (props: {
     );
   }, [adrLocationUrl, decorators, value, adr]);
 
+  // Render mermaid diagrams after content updates
+  useEffect(() => {
+    const renderMermaidDiagrams = async () => {
+      if (!contentRef.current || !adrContent) return;
+
+      try {
+        // Detect theme and configure Mermaid accordingly
+        const isDarkTheme = theme.palette.type === 'dark';
+        const mermaidTheme = isDarkTheme ? 'dark' : 'neutral';
+
+        // Initialize mermaid with theme-aware settings
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'strict',
+          theme: mermaidTheme,
+        });
+
+        // Find all mermaid code blocks within the content container
+        const mermaidElements = contentRef.current.querySelectorAll(
+          'code.language-mermaid',
+        );
+
+        if (mermaidElements.length > 0) {
+          // Run mermaid to transform code blocks into diagrams
+          await mermaid.run({
+            nodes: Array.from(mermaidElements) as HTMLElement[],
+          });
+        }
+      } catch (err) {
+        // Log errors but don't break the entire ADR rendering
+        errorApi.post(
+          new Error(
+            `Failed to render Mermaid diagrams: ${stringifyError(err)}`,
+          ),
+        );
+      }
+    };
+
+    renderMermaidDiagrams();
+  }, [adrContent, theme.palette.type, errorApi]);
+
   return (
     <CookieAuthRefreshProvider pluginId="adr">
       <InfoCard>
@@ -97,13 +148,15 @@ export const AdrReader = (props: {
           !error &&
           !backendUrlError &&
           value?.data && (
-            <MarkdownContent
-              content={adrContent}
-              linkTarget="_blank"
-              transformImageUri={href => {
-                return `${backendUrl}/image?url=${href}`;
-              }}
-            />
+            <div ref={contentRef}>
+              <MarkdownContent
+                content={adrContent}
+                linkTarget="_blank"
+                transformImageUri={href => {
+                  return `${backendUrl}/image?url=${href}`;
+                }}
+              />
+            </div>
           )}
       </InfoCard>
     </CookieAuthRefreshProvider>
