@@ -64,4 +64,20 @@ export const adrDecoratorFactories = Object.freeze({
       return { content: table + parsedFrontmatter.content };
     };
   },
+  /**
+   * Wraps mermaid code blocks in HTML to preserve the language-mermaid class.
+   * This ensures Mermaid diagrams can be properly rendered by the mermaid library.
+   */
+  createMermaidCodeBlockDecorator(): AdrContentDecorator {
+    return ({ content }) => ({
+      content: content.replace(
+        /```mermaid\n([\s\S]*?)```/gim,
+        (match, code) => {
+          // Wrap in HTML with explicit language-mermaid class
+          // This prevents the markdown renderer from converting it to language-text
+          return `<pre><code class="language-mermaid">${code.trim()}</code></pre>`;
+        },
+      ),
+    });
+  },
 });
